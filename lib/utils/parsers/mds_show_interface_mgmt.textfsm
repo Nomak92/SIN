@@ -1,0 +1,13 @@
+Value Required Interface (mgmt\S+)
+Value Description (\S+)
+Value WWN (\S+)
+Value Speed (\d+)
+Value IP (\S+)
+Value MAC (\S+)
+Value MTU (\d+)
+
+Start
+  ^${Interface}\sis\s.*$$
+  ^\s+Internet\s*address\s*is\s*${IP}$$
+  ^\s+Address\sis\s${MAC}$$
+  ^\s+MTU\s${MTU}\s.*$$ -> Record

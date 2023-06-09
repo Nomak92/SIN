@@ -1,0 +1,14 @@
+Value Required Interface (fc\S+)
+Value Description (\S+)
+Value WWN (\S+)
+Value Speed (\d+)
+Value IP (\S+)
+Value MAC (\S+)
+Value MTU (\d+)
+
+Start
+  ^${Interface}\sis\s.*$$
+  ^\s+Port\sdescription\sis\s${Description}$$
+  ^\s+Port\sWWN\sis\s${WWN}$$
+  ^\s+Operating\sSpeed\sis\s${Speed}\sGbps$$
+  ^\s+Last\sclearing.*$$ -> Record
