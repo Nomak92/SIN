@@ -1,5 +1,5 @@
 /.idea
 /venv
-/logs/*.log
-/*.csv
-/.env
+/logs/
+*.csv
+.env
