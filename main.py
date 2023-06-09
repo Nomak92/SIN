@@ -78,7 +78,6 @@ def discover_process(device_data: dict, netbox_url: str, netbox_token: str) -> d
             return results
         logger.info(f'Creating Netbox objects from discovered validated data on device {device_data["name"]}')
         try:
-            # if netbox_client.push(device_client.validated_data):
             push = device_client.push(netbox_client)
             if push:
                 results["update"] = True
