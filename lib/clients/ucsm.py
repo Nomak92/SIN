@@ -97,7 +97,7 @@ class UcsmChassisPlatformClient(BasePlatformClient, abc.ABC):
 
     def is_valid(self) -> bool:
         validator = self._validate(self.discovered_data)
-        self.validated_data = validator.dict()
+        self.validated_data = validator.model_dump()
         logger.debug(f'validated_data = {pf(self.validated_data)}')
         return True if self.validated_data else False
 
@@ -213,7 +213,7 @@ class UcsmServerPlatformClient(BasePlatformClient, abc.ABC):
         self.validated_data = []
         validator = self._validate(self.discovered_data)
         for server in validator:
-            self.validated_data.append(server.dict())
+            self.validated_data.append(server.model_dump())
         logger.debug(f'validated_data = {pf(self.validated_data)}')
         return True if self.validated_data else False
 

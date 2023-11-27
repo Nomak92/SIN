@@ -2,24 +2,32 @@ import ipaddress
 import json
 import logging
 import os
+from typing import Any
 import macaddress
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, field_validator, BeforeValidator, ConfigDict
+from typing_extensions import Annotated
 from dotenv import load_dotenv
 from lib.clients.netbox import NetboxClient
 
 logger = logging.getLogger()
 
 
-def optional_value(value):
+def optional_value(value: Any) -> Any | None:
     if not value:
         return None
     return value
 
 
-def must_have_value(value):
+OptionalStr = Annotated[str, BeforeValidator(optional_value)]
+
+
+def must_have_value(value: Any) -> Any:
     if not value:
         raise ValueError(f"must not be empty")
     return value
+
+
+RequiredStr = Annotated[str, BeforeValidator(must_have_value)]
 
 
 def must_be_positive(value):
@@ -30,6 +38,9 @@ def must_be_positive(value):
     return value
 
 
+PositiveInt = Annotated[int, BeforeValidator(must_be_positive)]
+
+
 def manufacturer_validator(value):
     if value not in ['Cisco', 'Intel', 'Emulex', 'Samsung', 'Hynix', 'Micron', 'Qimonda', 'LSI Logic', 'Cypress',
                      'Broadcom', "Toshiba", 'Unknown']:
@@ -37,11 +48,14 @@ def manufacturer_validator(value):
     return value
 
 
+ValidManufacturer = Annotated[str, BeforeValidator(manufacturer_validator)]
+
+
 class NetboxInterface(BaseModel):
     """
     class for Netbox interfaces
     """
-    name: str
+    name: RequiredStr
     type: str
     mac_address: str | None = None
     mtu: int | None = None
@@ -50,9 +64,7 @@ class NetboxInterface(BaseModel):
     description: str | None = None
     wwn: str | None = None
 
-    _validate_name = validator('name', allow_reuse=True)(must_have_value)
-
-    @validator('type')
+    @field_validator('type')
     def type_must_be_valid(cls, v):
         if v not in ["virtual", "lag", "100base-tx", "1000base-t", "2.5gbase-t", "5gbase-t", "10gbase-t", "10gbase-cx4",
                      "1000base-x-gbic", "1000base-x-sfp", "10gbase-x-sfpp", "10gbase-x-xfp", "10gbase-x-xenpak",
@@ -70,7 +82,7 @@ class NetboxInterface(BaseModel):
             raise ValueError(f'must be a valid interface type: {v}')
         return v
 
-    @validator('mac_address')
+    @field_validator('mac_address')
     def mac_must_be_valid(cls, v):
         if v is None:
             return ""
@@ -80,16 +92,16 @@ class NetboxInterface(BaseModel):
         except ValueError:
             raise ValueError(f'must be a valid mac address: {v}')
 
-    _validate_mtu = validator('mtu', allow_reuse=True)(must_be_positive)
-    _validate_speed = validator('speed', allow_reuse=True)(must_be_positive)
+    _validate_mtu = field_validator('mtu')(must_be_positive)
+    _validate_speed = field_validator('speed')(must_be_positive)
 
-    @validator('duplex')
+    @field_validator('duplex')
     def duplex_must_be_valid(cls, v):
         if v.lower() not in ['full', 'half']:
             raise ValueError(f'must be full or half: {v}')
         return v.lower()
 
-    @validator('description')
+    @field_validator('description')
     def description_must_be_valid(cls, v):
         if v is None:
             return v
@@ -97,7 +109,7 @@ class NetboxInterface(BaseModel):
             raise ValueError(f'must be less than 200 characters: {v}')
         return v
 
-    @validator('wwn')
+    @field_validator('wwn')
     def wwn_must_be_valid(cls, v):
         if not v:
             return None
@@ -112,24 +124,20 @@ class NetboxInventoryItem(BaseModel):
     """
     class for Netbox inventory item
     """
-    name: str
-    manufacturer: str
-    part_id: str
+    name: RequiredStr
+    manufacturer: ValidManufacturer
+    part_id: RequiredStr
     role: str
     custom_fields: dict
     serial: str = "N/A"
 
-    _validate_name = validator('name', allow_reuse=True)(must_have_value)
-    _validate_manufacturer = validator('manufacturer', allow_reuse=True)(manufacturer_validator)
-    _validate_part_id = validator('part_id', allow_reuse=True)(must_have_value)
-
-    @validator('role')
+    @field_validator('role')
     def role_must_be_valid(cls, value):
         if value not in ["CPU", "Memory", "Flash", "SSD", "HDD"]:
             raise ValueError(f'role is not valid: {value}')
         return value
 
-    @validator('custom_fields')
+    @field_validator('custom_fields')
     def custom_fields_must_be_valid(cls, value):
         if value is None:
             return {}
@@ -138,7 +146,7 @@ class NetboxInventoryItem(BaseModel):
                 value.pop(key)
         return value
 
-    @validator('serial')
+    @field_validator('serial')
     def serial_must_be_valid(cls, value):
         if value is None:
             return "N/A"
@@ -151,17 +159,13 @@ class NetboxModule(BaseModel):
     """
     class for Netbox modules
     """
-    module_type: str
-    module_bay: str
-    manufacturer: str
+    module_type: RequiredStr
+    module_bay: RequiredStr
+    manufacturer: ValidManufacturer
     serial: str = "N/A"
     custom_fields: dict | None = None
 
-    _validate_module_type = validator('module_type', allow_reuse=True)(must_have_value)
-    _validate_module_bay = validator('module_bay', allow_reuse=True)(must_have_value)
-    _validate_manufacturer = validator('manufacturer', allow_reuse=True)(manufacturer_validator)
-
-    @validator('serial')
+    @field_validator('serial')
     def serial_must_be_valid(cls, value):
         if value is None:
             return "N/A"
@@ -169,7 +173,7 @@ class NetboxModule(BaseModel):
             raise ValueError(f'serial must be less than 100 characters: {value}')
         return value
 
-    @validator('custom_fields')
+    @field_validator('custom_fields')
     def custom_fields_must_be_valid(cls, value):
         if value is None:
             return {}
@@ -185,10 +189,10 @@ class NetboxIPAddress(BaseModel):
     """
     address: str
     status: str = 'active'
-    assigned_object: str
+    assigned_object: RequiredStr
     assigned_object_type: str
 
-    @validator('address')
+    @field_validator('address')
     def address_must_be_valid(cls, value):
         try:
             ipaddress.ip_interface(value)
@@ -196,28 +200,26 @@ class NetboxIPAddress(BaseModel):
         except ValueError:
             raise ValueError(f'must be a valid IP address: {value}')
 
-    @validator('status')
+    @field_validator('status')
     def status_must_be_valid(cls, value):
         if value not in ["active", "reserved", "deprecated"]:
             raise ValueError(f'must be a valid status: {value}')
         return value
 
-    @validator('assigned_object_type')
+    @field_validator('assigned_object_type')
     def assigned_object_type_must_be_valid(cls, value):
         if value not in ["dcim.interface"]:
             raise ValueError(f'must be a valid assigned_object_type: {value}')
         return value
 
-    _validate_assigned_object = validator('assigned_object', allow_reuse=True)(must_have_value)
-
 
 class NetboxDevice(BaseModel):
-    name: str
+    name: RequiredStr
     device_type: str | int
     device_role: str | int
     site: str | int
     platform: str | int
-    serial: str
+    serial: RequiredStr
     custom_fields: dict
     tenant: str | int
     cluster: str | int | None = None
@@ -230,30 +232,27 @@ class NetboxDevice(BaseModel):
     tags: str | list | None
     rack: str | int | None = None
     local_context_data: str | dict | None = None
-    position: int | None = None
+    position: PositiveInt | None = None
     face: str | None = None
     primary_ip6: str | None = None
-    asset_tag: str | None = None
+    asset_tag: OptionalStr | None = None
     status: str | None = 'active'
     comments: str | None = ""
     virtual_chassis: str | int | None = None
-    vc_position: int | None = None
-    vc_priority: int | None = None
+    vc_position: PositiveInt | None = None
+    vc_priority: PositiveInt | None = None
     airflow: str | None = None
     devices: list | None = None
     slot_id: int | None = None
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @classmethod
     def handler(cls) -> NetboxClient:
         load_dotenv()
         return NetboxClient(os.getenv('NETBOX_URL'), os.getenv('NETBOX_TOKEN'))
 
-    _validate_name = validator('name', allow_reuse=True)(must_have_value)
-
-    @validator('device_type')
+    @field_validator('device_type')
     def validate_device_type(cls, param: str) -> int:
         result = cls.handler().get_device_type(param)
         if not result:
@@ -261,27 +260,25 @@ class NetboxDevice(BaseModel):
         assert result, f"Device type {param} not found"
         return result
 
-    @validator('device_role')
+    @field_validator('device_role')
     def validate_device_role(cls, param: str) -> int:
         result = cls.handler().get_device_role(param)
         assert result, f"Device role {param} not found"
         return result
 
-    @validator('site')
+    @field_validator('site')
     def validate_site(cls, param: str) -> int:
         result = cls.handler().get_site(param)
         assert result, f"Site {param} not found"
         return result
 
-    @validator('platform')
+    @field_validator('platform')
     def validate_platform(cls, param: str) -> int:
         result = cls.handler().get_platform(param)
         assert result, f"Platform {param} not found"
         return result
 
-    _validate_serial = validator('serial', allow_reuse=True)(must_have_value)
-
-    @validator('custom_fields')
+    @field_validator('custom_fields')
     def validate_custom_fields(cls, param: dict) -> dict:
         errors = []
         # custom fields requiring a value
@@ -300,7 +297,7 @@ class NetboxDevice(BaseModel):
             raise ValueError(errors)
         return param
 
-    @validator('cluster')
+    @field_validator('cluster')
     def validate_cluster(cls, param: str) -> int | None:
         if not param:
             return None
@@ -308,13 +305,13 @@ class NetboxDevice(BaseModel):
         assert result, f"Cluster {param} not found"
         return result
 
-    @validator('tenant')
+    @field_validator('tenant')
     def validate_tenant(cls, param: str) -> int:
         result = cls.handler().get_tenant(param)
         assert result, f"Tenant {param} not found"
         return result
 
-    @validator('location')
+    @field_validator('location')
     def validate_location(cls, param: str) -> int | None:
         if not param:
             return None
@@ -322,7 +319,7 @@ class NetboxDevice(BaseModel):
         assert result, f"Location {param} not found"
         return result
 
-    @validator('primary_ip4')
+    @field_validator('primary_ip4')
     def validate_primary_ip4(cls, param: str) -> int | None:
         if not param:
             return None
@@ -333,7 +330,7 @@ class NetboxDevice(BaseModel):
         assert result, f"IP address {param} not found"
         return result
 
-    @validator('interfaces')
+    @field_validator('interfaces')
     def validate_interfaces(cls, param: list) -> list[NetboxInterface] | None:
         if not param:
             return None
@@ -343,7 +340,7 @@ class NetboxDevice(BaseModel):
             results.append(NetboxInterface(**interface))
         return results
 
-    @validator('modules')
+    @field_validator('modules')
     def validate_modules(cls, param: list) -> list[NetboxModule] | None:
         if not param:
             return None
@@ -353,7 +350,7 @@ class NetboxDevice(BaseModel):
             results.append(NetboxModule(**module))
         return results
 
-    @validator('inventory_items')
+    @field_validator('inventory_items')
     def validate_inventory_items(cls, param: list) -> list[NetboxInventoryItem] | None:
         if not param:
             return None
@@ -363,7 +360,7 @@ class NetboxDevice(BaseModel):
             results.append(NetboxInventoryItem(**inventory_item))
         return results
 
-    @validator('ip_addresses')
+    @field_validator('ip_addresses')
     def validate_ip_addresses(cls, param: list) -> list[NetboxIPAddress] | None:
         if not param:
             return None
@@ -373,13 +370,13 @@ class NetboxDevice(BaseModel):
             results.append(NetboxIPAddress(**ip_address))
         return results
 
-    @validator('rack')
+    @field_validator('rack')
     def validate_rack(cls, param: str) -> int | None:
         if param:
             return cls.handler().get_rack(param)
         return None
 
-    @validator('local_context_data')
+    @field_validator('local_context_data')
     def validate_local_context_data(cls, param: str) -> dict | None:
         if param:
             try:
@@ -388,9 +385,7 @@ class NetboxDevice(BaseModel):
                 raise ValueError(f"local_context_data must be a valid JSON string")
         return None
 
-    _validate_position = validator('position', allow_reuse=True)(must_be_positive)
-
-    @validator('face')
+    @field_validator('face')
     def validate_face(cls, param: str) -> str | None:
         if param:
             if param not in ["front", "rear"]:
@@ -398,15 +393,13 @@ class NetboxDevice(BaseModel):
             return param
         return None
 
-    @validator('primary_ip6')
+    @field_validator('primary_ip6')
     def validate_primary_ip6(cls, param: str) -> int | None:
         if param:
             return cls.handler().get_ip_address(param).id
         return None
 
-    _validate_asset_tag = validator('asset_tag', allow_reuse=True)(optional_value)
-
-    @validator('status')
+    @field_validator('status')
     def validate_status(cls, param: str) -> str | None:
         if param:
             if param not in ["active", "planned", "staged", "failed", "inventory", "decommissioning", "offline"]:
@@ -415,28 +408,25 @@ class NetboxDevice(BaseModel):
             return param
         return 'active'
 
-    @validator('comments')
+    @field_validator('comments')
     def validate_comments(cls, param: str) -> str:
         if param:
             return param
         return ''
 
-    @validator('tags')
+    @field_validator('tags')
     def validate_tags(cls, param: str | None) -> list:
         if not param:
             return []
         return [tag.strip() for tag in param.split(",")]
 
-    @validator('virtual_chassis')
+    @field_validator('virtual_chassis')
     def validate_virtual_chassis(cls, param: str) -> int | None:
         if param:
             return cls.handler().get_virtual_chassis(param)
         return None
 
-    _validate_vc_position = validator('vc_position', allow_reuse=True)(must_be_positive)
-    _validate_vc_priority = validator('vc_priority', allow_reuse=True)(must_be_positive)
-
-    @validator('airflow')
+    @field_validator('airflow')
     def validate_airflow(cls, param: str) -> str | None:
         if param:
             if param not in ["front-to-rear", "rear-to-front", "left-to-right", "right-to-left", "side-to-rear",
@@ -446,7 +436,7 @@ class NetboxDevice(BaseModel):
             return param
         return None
 
-    @validator('devices')
+    @field_validator('devices')
     def validate_devices(cls, param: list) -> list["NetboxDevice"] | None:
         if not param:
             return None
@@ -456,7 +446,7 @@ class NetboxDevice(BaseModel):
             results.append(NetboxDevice(**device))
         return results
 
-    @validator('slot_id')
+    @field_validator('slot_id')
     def validate_slot_id(cls, param: int | None) -> int | None:
         if param:
             if param < 1:
@@ -466,12 +456,10 @@ class NetboxDevice(BaseModel):
 
 
 class NetboxVirtualChassis(BaseModel):
-    name: str
+    name: RequiredStr
     members: list[NetboxDevice]
 
-    _validate_name = validator('name', allow_reuse=True)(must_have_value)
-
-    @validator('members')
+    @field_validator('members')
     def validate_members(cls, param: list) -> list[NetboxDevice]:
         for member in param:
             assert isinstance(member, NetboxDevice), f"Member {member} must be a NetboxDevice object"
