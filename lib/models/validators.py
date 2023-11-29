@@ -58,7 +58,7 @@ class NetboxInterface(BaseModel):
     name: RequiredStr
     type: str
     mac_address: str | None = None
-    mtu: int | None = None
+    mtu: int | None = 1500
     speed: int = 1000
     duplex: str = 'full'
     description: str | None = None
@@ -208,7 +208,7 @@ class NetboxIPAddress(BaseModel):
 
     @field_validator('assigned_object_type')
     def assigned_object_type_must_be_valid(cls, value):
-        if value not in ["dcim.interface"]:
+        if value not in ["dcim.interface", "virtualization.vminterface"]:
             raise ValueError(f'must be a valid assigned_object_type: {value}')
         return value
 
@@ -464,3 +464,169 @@ class NetboxVirtualChassis(BaseModel):
         for member in param:
             assert isinstance(member, NetboxDevice), f"Member {member} must be a NetboxDevice object"
         return param
+
+
+class NetboxVirtualInterface(BaseModel):
+    name: RequiredStr
+    enabled: bool = True
+    parent: str | int | None = None
+    bridge: str | int | None = None
+    mtu: PositiveInt | None = 1500
+    mac_address: str
+    description: str | None = None
+    mode: str | None = "access"
+    untagged_vlan: str | int | None = None
+    tagged_vlans: list[str | int] | None = None
+    vrf: str | int | None = None
+    tags: str | list | None = None
+    custom_fields: dict | None = None
+
+    @field_validator('mac_address')
+    def mac_must_be_valid(cls, v):
+        if v is None:
+            return ""
+        try:
+            mac = macaddress.parse(v, macaddress.EUI48)
+            return str(mac).replace('-', ':')
+        except ValueError:
+            raise ValueError(f'must be a valid mac address: {v}')
+
+    @field_validator('description')
+    def description_must_be_valid(cls, v):
+        if v is None:
+            return v
+        if len(v) > 200:
+            raise ValueError(f'must be less than 200 characters: {v}')
+        return v
+
+
+class NetboxVirtualMachine(BaseModel):
+    name: RequiredStr
+    status: str = 'active'
+    site: str | int
+    cluster: str | int
+    device: str | int
+    role: str | int
+    tenant: str | int
+    platform: str | int
+    primary_ip4: str | int | None = None
+    vcpus: PositiveInt
+    memory: PositiveInt
+    disk: PositiveInt
+    description: str | None = ""
+    comments: str | None = ""
+    local_context_data: str | dict | None = None
+    tags: list | None = []
+    custom_fields: dict
+    primary_ip6: str | None = None
+    ip_addresses: list | None = None
+    interfaces: list | None = None
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    @classmethod
+    def handler(cls) -> NetboxClient:
+        load_dotenv()
+        return NetboxClient(os.getenv('NETBOX_URL'), os.getenv('NETBOX_TOKEN'))
+
+    @field_validator('site')
+    def validate_site(cls, param: str) -> int:
+        result = cls.handler().get_site(param)
+        assert result, f"Site {param} not found"
+        return result
+
+    @field_validator('cluster')
+    def validate_cluster(cls, param: str) -> int | None:
+        if not param:
+            return None
+        result = cls.handler().get_cluster(param)
+        assert result, f"Cluster {param} not found"
+        return result
+
+    @field_validator('device')
+    def validate_device(cls, param: str) -> int:
+        result = cls.handler().get_device(param).id
+        assert result, f"Device {param} not found"
+        return result
+
+    @field_validator('role')
+    def validate_device_role(cls, param: str) -> int:
+        result = cls.handler().get_device_role(param)
+        assert result, f"Device role {param} not found"
+        return result
+
+    @field_validator('tenant')
+    def validate_tenant(cls, param: str) -> int:
+        result = cls.handler().get_tenant(param)
+        assert result, f"Tenant {param} not found"
+        return result
+
+    @field_validator('platform')
+    def validate_platform(cls, param: str) -> int:
+        result = cls.handler().get_platform(param)
+        assert result, f"Platform {param} not found"
+        return result
+
+    @field_validator('primary_ip4')
+    def validate_primary_ip4(cls, param: str) -> int | None:
+        if not param:
+            return None
+        try:
+            result = cls.handler().get_ip_address(param).id
+        except AttributeError:
+            result = cls.handler().create_ip_address(param).id
+        assert result, f"IP address {param} not found"
+        return result
+
+    @field_validator('custom_fields')
+    def validate_custom_fields(cls, param: dict) -> dict:
+        errors = []
+        # custom fields requiring a value
+        for key in ["os"]:
+            if key in param.keys():
+                if not param[key]:
+                    errors.append(f"custom field {key} must not be empty")
+                    continue
+        if errors:
+            raise ValueError(errors)
+        return param
+
+    @field_validator('ip_addresses')
+    def validate_ip_addresses(cls, param: list) -> list[NetboxIPAddress] | None:
+        if not param:
+            return None
+        results = []
+        for ip_address in param:
+            assert isinstance(ip_address, dict), f"IP address {ip_address} must be a dict"
+            results.append(NetboxIPAddress(**ip_address))
+        return results
+
+    @field_validator('interfaces')
+    def validate_interfaces(cls, param: list) -> list[NetboxVirtualInterface] | None:
+        if not param:
+            return None
+        results = []
+        for interface in param:
+            assert isinstance(interface, dict), f"Interface {interface} must be a dict"
+            results.append(NetboxVirtualInterface(**interface))
+        return results
+
+    @field_validator('description')
+    def description_must_be_valid(cls, v):
+        if v is None:
+            return ""
+        if len(v) > 200:
+            raise ValueError(f'must be less than 200 characters: {v}')
+        return v
+
+    @field_validator('comments')
+    def description_must_be_valid(cls, v):
+        if v is None:
+            return ""
+        return v
+
+    @field_validator('tags')
+    def description_must_be_valid(cls, v):
+        if v is None:
+            return []
+        return v

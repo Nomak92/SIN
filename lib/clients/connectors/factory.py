@@ -3,10 +3,10 @@ from lib.clients.connectors.imc import ImcDeviceHandler
 from lib.clients.connectors.mds import MDSDeviceHandler
 from lib.clients.connectors.ucsm import UcsmChassisDeviceHandler, UcsmServerDeviceHandler
 from lib.clients.connectors.esxi import EsxiDeviceHandler
+from lib.clients.connectors.vcenter import VcenterDeviceHandler, VcenterVirtualMachineHandler
 import logging
 from typing import TypeVar
 
-from lib.clients.connectors.vcenter import VcenterDeviceHandler
 
 logger = logging.getLogger()
 
@@ -33,6 +33,8 @@ class DeviceHandlerFactory:
             return VcenterDeviceHandler(self.ip, self.credentials)
         elif self.platform.lower() == 'mds':
             return MDSDeviceHandler(self.ip, self.credentials)
+        elif self.platform.lower() == 'vm':
+            return VcenterVirtualMachineHandler(self.ip, self.credentials)
         else:
             logger.error(f'No handler found for platform {self.platform}')
             raise NotImplementedError(f'No handler found for platform {self.platform}')

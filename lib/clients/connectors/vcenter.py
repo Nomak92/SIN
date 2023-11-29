@@ -18,6 +18,7 @@ class VcenterDeviceHandler(BaseDeviceHandler, abc.ABC):
         super().__init__(ip, credentials)
         self.handler = self.connect()
         self.hosts = {}
+        self.virtual_machines = {}
 
     def connect(self):
         """
@@ -226,3 +227,154 @@ class VcenterDeviceHandler(BaseDeviceHandler, abc.ABC):
         logger.debug(f'Clusters for vCenter instance {self.ip}: {pf(clusters)}')
         return clusters
 
+
+class VcenterVirtualMachineHandler(BaseDeviceHandler):
+    def __init__(self, ip: str, credentials: dict):
+        super().__init__(ip, credentials)
+        self.handler = self.connect()
+
+    def connect(self):
+        """
+        Connect to vCenter instance
+        :return:
+        """
+        logger.debug(f'Connecting to vCenter instance {self.ip}')
+        self.handler = SmartConnect(host=self.ip, user=self.username, pwd=self.password, disableSslCertValidation=True)
+        logger.info(f'Successfully connected to vCenter instance {self.ip}')
+        return self.handler
+
+    def disconnect(self):
+        """
+        Disconnect from vCenter instance
+        :return:
+        """
+        logger.debug(f'Disconnecting from vCenter instance {self.ip}')
+        if not self.handler:
+            logger.warning(f'No handler for vCenter instance {self.ip}')
+            return
+        self.handler.Disconnect()
+        logger.info(f'Successfully disconnected from vCenter instance {self.ip}')
+
+    def execute(self, command: str) -> str:
+        pass
+
+    def discover(self) -> dict:
+        pass
+
+    def discover_vm(self, vm_name: str) -> dict:
+        """
+        Discover the virtual machine in vCenter matching name
+        :param vm_name:
+        :return:
+        """
+        logger.debug(f'Discovering virtual machine {vm_name} in vCenter instance {self.ip}')
+        virtual_machine = self.get_virtual_machine(vm_name)
+        ip_addresses = self.get_ip_addresses(virtual_machine)
+        primary_ip4 = None
+        for ip in ip_addresses:
+            if virtual_machine.guest.ipAddress in ip["address"]:
+                primary_ip4 = ip["address"]
+                break
+        results = {
+            "primary_ip4": primary_ip4,
+            "device": virtual_machine.runtime.host.name,
+            "vcpus": virtual_machine.config.hardware.numCPU,
+            "memory": int(virtual_machine.config.hardware.memoryMB),
+            "disk": self.get_disk_size(virtual_machine),
+            "interfaces": self.get_interfaces(virtual_machine),
+            "ip_addresses": ip_addresses,
+            "custom_fields": {
+                "os": virtual_machine.guest.guestFullName,
+            }
+        }
+        logger.debug(f'Discovered virtual machine {vm_name} in vCenter instance {self.ip}: {pf(results)}')
+        return results
+
+    def get_virtual_machine(self, name: str) -> vim.VirtualMachine:
+        """
+        Get the virtual machine in vCenter instance using PyVmomi
+        :return:
+        """
+        logger.debug(f'Getting virtual machine {name} for vCenter instance {self.ip}')
+        content = self.handler.RetrieveContent()
+        container = content.rootFolder  # starting point to look into
+        view_type = [vim.VirtualMachine]  # object types to look for
+        recursive = True  # whether we should look into it recursively
+        container_view = content.viewManager.CreateContainerView(
+            container, view_type, recursive)
+        for vm in container_view.view:
+            if vm.name == name:
+                logger.debug(f'Got virtual machine {name} for vCenter instance {self.ip}')
+                logger.debug(f'Virtual machine {name} for vCenter instance {self.ip}: {pf(vm)}')
+                return vm
+            else:
+                continue
+        logger.debug(f'Virtual machine {name} for vCenter instance {self.ip} not found')
+        raise ValueError(f'Virtual machine {name} for vCenter instance {self.ip} not found')
+
+    def get_disk_size(self, virtual_machine: vim.VirtualMachine) -> int:
+        """
+        Get the disk size of a virtual machine in vCenter instance using PyVmomi
+        :param virtual_machine:
+        :return:
+        """
+        logger.debug(f'Getting disk size for virtual machine {virtual_machine.name} for vCenter instance {self.ip}')
+        disk_size = 0
+        for disk in virtual_machine.config.hardware.device:
+            if isinstance(disk, vim.vm.device.VirtualDisk):
+                disk_size += disk.capacityInKB
+        logger.debug(f'Got disk size for virtual machine {virtual_machine.name} for vCenter instance {self.ip}: '
+                     f'{pf(disk_size)}')
+        disk_size = disk_size / 1024 / 1024
+        return int(disk_size)
+
+    def get_interfaces(self, virtual_machine: vim.VirtualMachine) -> list[dict]:
+        """
+        Get the interfaces for a virtual machine using PyVmomi
+        :param virtual_machine:
+        :return:
+        """
+        logger.debug(f'Getting interfaces for virtual machine {virtual_machine.name} for vCenter instance {self.ip}')
+        interfaces = []
+        for interface in virtual_machine.config.hardware.device:
+            if (isinstance(interface, vim.vm.device.VirtualEthernetCard) or
+                    isinstance(interface, vim.vm.device.VirtualVmxnet3)):
+                interfaces.append({
+                    "name": interface.deviceInfo.label,
+                    "description": interface.deviceInfo.summary,
+                    "mac_address": interface.macAddress,
+                    "mtu": 1500
+                })
+        logger.debug(f'Got interfaces for virtual machine {virtual_machine.name} for vCenter instance {self.ip}: '
+                     f'{pf(interfaces)}')
+        return interfaces
+
+    def get_ip_addresses(self, virtual_machine: vim.VirtualMachine) -> list[dict]:
+        """
+        Get the ip addresses for a virtual machine using PyVmomi
+        :param virtual_machine:
+        :return:
+        """
+        logger.debug(f'Getting ip addresses for virtual machine {virtual_machine.name} for vCenter instance {self.ip}')
+        ip_addresses = []
+        for nic in virtual_machine.guest.net:
+            for ip in nic.ipConfig.ipAddress:
+                if isinstance(ipaddress.ip_interface(f"{ip.ipAddress}/{ip.prefixLength}"), ipaddress.IPv6Interface):
+                    continue
+                address = ipaddress.ip_interface(f"{ip.ipAddress}/{ip.prefixLength}").exploded
+                assigned_interface = None
+                for interface in virtual_machine.config.hardware.device:
+                    if (isinstance(interface, vim.vm.device.VirtualEthernetCard) or
+                            isinstance(interface, vim.vm.device.VirtualVmxnet3)):
+                        if interface.macAddress == nic.macAddress:
+                            assigned_interface = interface.deviceInfo.label
+                            break
+                ip_addresses.append({
+                    "assigned_object": assigned_interface,
+                    "assigned_object_type": "virtualization.vminterface",
+                    "address": address,
+                    "status": "active"
+                })
+        logger.debug(f'Got ip addresses for virtual machine {virtual_machine.name} for vCenter instance {self.ip}: '
+                     f'{pf(ip_addresses)}')
+        return ip_addresses

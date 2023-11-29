@@ -96,7 +96,7 @@ class MDSPlatformClient(BasePlatformClient, abc.ABC):
                                                              inventory_items=self.validated_data['inventory_items']))
         if primary_ip4 is not None:
             logger.info(f'Checking if device {device.name} has primary IP {primary_ip4}')
-            if not device.primary_ip4 or device.primary_ip4.address != primary_ip4:
+            if not device.primary_ip4 or device.primary_ip4.id != primary_ip4:
                 logger.info(f'Checking if ip address {primary_ip4} already is assigned to another device')
                 ip_assigned = netbox_client.get_assigned_ip_address(primary_ip4)
                 if not ip_assigned or ip_assigned.device.name == device.name:

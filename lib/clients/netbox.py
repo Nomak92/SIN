@@ -29,6 +29,18 @@ class NetboxClient:
                                             local_context_data=local_context_data, tags=tags,
                                             custom_fields=custom_fields)
 
+    def _create_vm(self, name: str, device: int, cluster: int, status: str, site: int, role: int, tenant: int, platform: int,
+                   vcpus: int, memory: int, disk: int, description: str = None, comments: str = None,
+                   local_context_data: dict = None, tags: list[str] = None, custom_fields: dict = None) \
+            -> Record | None:
+        logger.debug(f'Creating VM {name}')
+        return self.api.virtualization.virtual_machines.create(name=name, device=device, cluster=cluster, status=status, site=site,
+                                                               role=role, tenant=tenant, platform=platform,
+                                                               description=description,
+                                                               local_context_data=local_context_data, vcpus=vcpus,
+                                                               memory=memory, disk=disk, comments=comments, tags=tags,
+                                                               custom_fields=custom_fields)
+
     @staticmethod
     def _update_device(device: Record, name: str, device_type: int, device_role: int, site: int, status: str,
                        tenant: int = None, platform: int = None, serial: str = None, asset_tag: str = None,
@@ -55,6 +67,27 @@ class NetboxClient:
         logger.debug(f'Updating device {device} with data: {update_data}')
         device.update(update_data)
         return device
+
+    @staticmethod
+    def _update_vm(vm: Record, name: str, device: int, cluster: int, status: str, site: int, role: int, tenant: int, platform: int,
+                   vcpus: int, memory: int, disk: int, description: str = None, comments: str = None,
+                   local_context_data: dict = None, tags: list[str] = None, custom_fields: dict = None) -> Record:
+        logger.debug(f'Updating vm {name}')
+        if vm is None:
+            logger.error(f'VM record must be provided to update device {name}')
+            raise ValueError(f'VM record must be provided to update device {name}')
+        update_data = {
+            'name': name, 'device': device, 'role': role, 'site': site, 'status': status,
+            'tenant': tenant, 'platform': platform, 'vcpus': vcpus, 'cluster': cluster, 'memory': memory,
+            'disk': disk, 'description': description, 'comments': comments, 'local_context_data': local_context_data,
+            'tags': tags, 'custom_fields': custom_fields
+        }
+        for key in update_data.copy():
+            if update_data[key] is None:
+                update_data.pop(key)
+        logger.debug(f'Updating VM {vm} with data: {update_data}')
+        vm.update(update_data)
+        return vm
 
     def create_or_update_device(self, name: str, device_type: int, device_role: int, site: int, status: str,
                                 tenant: int = None, platform: int = None, serial: str = None, asset_tag: str = None,
@@ -83,6 +116,25 @@ class NetboxClient:
                                        vc_priority=vc_priority, comments=comments,
                                        local_context_data=local_context_data, tags=tags, custom_fields=custom_fields)
 
+    def create_or_update_vm(self, name: str, device: int, cluster: int, status: str, site: int, role: int, tenant: int,
+                            platform: int, vcpus: int, memory: int, disk: int, description: str = None,
+                            comments: str = None, local_context_data: dict = None, tags: list[str] = None,
+                            custom_fields: dict = None, **kwargs) -> Record | None:
+        logger.debug(f'Data not sent to Netbox: {kwargs}')
+        vm = self.get_vm(name)
+        if vm is None:
+            logger.debug(f'No VM found. Creating VM {name}')
+            return self._create_vm(name=name, device=device, cluster=cluster, status=status, site=site, role=role, tenant=tenant,
+                                   platform=platform, vcpus=vcpus, memory=memory, disk=disk, description=description,
+                                   comments=comments, local_context_data=local_context_data, tags=tags,
+                                   custom_fields=custom_fields)
+        else:
+            logger.debug(f'Updating VM {name} with VM id {vm.id}')
+            return self._update_vm(vm=vm, name=name, device=device, cluster=cluster, status=status, site=site, role=role,
+                                   tenant=tenant, platform=platform, vcpus=vcpus, memory=memory, disk=disk,
+                                   description=description, comments=comments, local_context_data=local_context_data,
+                                   tags=tags, custom_fields=custom_fields)
+
     @staticmethod
     def _return_id_or_none(obj: Record | None) -> int | None:
         if obj is not None:
@@ -107,6 +159,9 @@ class NetboxClient:
 
     def get_device(self, name: str) -> Record | None:
         return self.api.dcim.devices.get(name=name)
+
+    def get_vm(self, name: str) -> Record | None:
+        return self.api.virtualization.virtual_machines.get(name=name)
 
     def get_device_type(self, param: str) -> int | None:
         return self._return_id_or_none(self.api.dcim.device_types.get(model=param))
@@ -228,9 +283,22 @@ class NetboxClient:
     def add_ip_addresses(self, device: int, ip_addresses: list[dict]) -> list[Record]:
         results = []
         for ip_address in ip_addresses:
+            logger.debug('Removing null parameters from IP address dict')
+            for key in ip_address.copy():
+                if ip_address[key] is None:
+                    ip_address.pop(key)
             if ip_address["assigned_object_type"] == "dcim.interface":
                 logger.debug(f'Retrieving interface {ip_address["assigned_object"]}')
                 assigned_object = self.get_interface(device=device, name=ip_address['assigned_object'])
+                if assigned_object is None:
+                    raise ValueError(
+                        f'{ip_address["assigned_object"]} does not exist as a {ip_address["assigned_object_type"]}'
+                        f' object in Netbox on device {device}')
+                else:
+                    ip_address['assigned_object_id'] = assigned_object.id
+            elif ip_address["assigned_object_type"] == "virtualization.vminterface":
+                logger.debug(f'Retrieving interface {ip_address["assigned_object"]}')
+                assigned_object = self.get_virtual_interface(vm_id=device, name=ip_address['assigned_object'])
                 if assigned_object is None:
                     raise ValueError(
                         f'{ip_address["assigned_object"]} does not exist as a {ip_address["assigned_object_type"]}'
@@ -273,6 +341,9 @@ class NetboxClient:
 
     def get_interface(self, device: int, name: str) -> Record | None:
         return self.api.dcim.interfaces.get(device_id=device, name=name)
+
+    def get_virtual_interface(self, vm_id: int, name: str) -> Record | None:
+        return self.api.virtualization.interfaces.get(virtual_machine_id=vm_id, name=name)
 
     def get_inventory_item(self, device: int, name: str) -> Record | None:
         return self.api.dcim.inventory_items.get(device_id=device, name=name)
@@ -343,4 +414,22 @@ class NetboxClient:
                 return ip.assigned_object
         return None
 
-
+    def add_virtual_interfaces(self, vm: int, interfaces: list[dict]) -> list[Record]:
+        results = []
+        for interface in interfaces:
+            logger.debug(f'Removing no value parameters from interface dict')
+            for key in interface.copy():
+                if interface[key] is None:
+                    interface.pop(key)
+            logger.debug(f'Checking if interface {interface["name"]} exists on VM {vm}')
+            interface_obj = self.get_virtual_interface(vm_id=vm, name=interface['name'])
+            if interface_obj is None:
+                logger.debug(f'Adding interface {interface["name"]} to VM {vm}')
+                interface_obj = self.api.virtualization.interfaces.create(virtual_machine=vm, **interface)
+            else:
+                logger.debug(f'Updating interface {interface["name"]} on VM {vm}')
+                interface_obj.update(interface)
+            if interface_obj is None:
+                raise ValueError(f'Failed to create or update interface {interface}')
+            results.append(interface_obj)
+        return results

@@ -4,7 +4,7 @@ pyats[full]~=23.10
 unicon~=23.10
 redfish~=3.2.1
 ucsmsdk~=0.9.14
-pydantic~=2.5.1
+pydantic==2.5.2
 imcsdk~=0.9.13
 macaddress~=2.0.2
 pyvmomi~=8.0.2.0.1

@@ -55,7 +55,7 @@ class EsxiDeviceHandler(BaseDeviceHandler, abc.ABC):
         logger.debug(f'Results: {pf(results)}')
         return results
 
-    def discover(self):
+    def discover(self) -> dict:
         if not self.handler.is_connected:
             self.handler.connect()
         results = {

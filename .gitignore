@@ -3,4 +3,4 @@
 /logs/
 *.csv
 .env
-import.csv
+/import.csv
