@@ -1,5 +1,6 @@
 import argparse
 import os
+import yaml
 from pprint import pformat as pf
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import Process, Queue
@@ -11,7 +12,8 @@ from lib.utils.logs import create_logger_process, create_logger
 from dotenv import load_dotenv
 
 parser = argparse.ArgumentParser(description='Discover devices from a csv file')
-parser.add_argument('--csv', dest="csv_file", help='The csv file to discover', required=True)
+parser.add_argument('--csv', dest="csv_file", help='The csv file to discover', required=False)
+parser.add_argument('--yaml', dest="yaml_file", help='The yaml file to discover', required=False)
 args = parser.parse_args()
 logger = create_logger()
 logger.debug(f'args = {args}')
@@ -19,8 +21,21 @@ logger.debug(f'args = {args}')
 
 def main():
     logger.info(f'Starting discovery program')
-    logger.info(f'Loading devices from CSV file')
-    devices = CsvHandler(args.csv_file).read()
+    if args.csv_file:
+        logger.info(f'Loading devices from CSV file')
+        devices = CsvHandler(args.csv_file).read()
+    elif args.yaml_file:
+        logger.info(f'Loading devices from YAML file')
+        with open(args.yaml_file, 'r') as stream:
+            file = yaml.safe_load(stream)
+            defaults = file["defaults"]
+            devices = file["devices"]
+            for device in devices:
+                for key, value in defaults.items():
+                    if key not in device:
+                        device[key] = value
+    else:
+        raise ValueError(f'No csv or yaml file specified')
     with ProcessPoolExecutor(max_workers=10) as executor:
         futures = []
         for device_data in devices:

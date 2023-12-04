@@ -20,7 +20,7 @@ class NetboxClient:
                        vc_priority: int = None, comments: str = None, local_context_data: dict = None,
                        tags: list[str] = None, custom_fields: dict = None) -> Record | None:
         logger.debug(f'Creating device {name}')
-        return self.api.dcim.devices.create(name=name, device_type=device_type, device_role=device_role, site=site,
+        return self.api.dcim.devices.create(name=name, device_type=device_type, role=device_role, site=site,
                                             tenant=tenant, status=status, platform=platform, serial=serial,
                                             asset_tag=asset_tag, location=location, rack=rack, position=position,
                                             face=face, airflow=airflow, cluster=cluster,
@@ -54,7 +54,7 @@ class NetboxClient:
             logger.error(f'Device record must be provided to update device {name}')
             raise ValueError(f'Device record must be provided to update device {name}')
         update_data = {
-            'name': name, 'device_type': device_type, 'device_role': device_role, 'site': site, 'status': status,
+            'name': name, 'device_type': device_type, 'role': device_role, 'site': site, 'status': status,
             'tenant': tenant, 'platform': platform, 'serial': serial, 'asset_tag': asset_tag, 'location': location,
             'rack': rack, 'position': position, 'face': face, 'airflow': airflow, 'primary_ip4': primary_ip4,
             'primary_ip6': primary_ip6, 'cluster': cluster, 'virtual_chassis': virtual_chassis,

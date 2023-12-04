@@ -505,7 +505,7 @@ class NetboxVirtualMachine(BaseModel):
     status: str = 'active'
     site: str | int
     cluster: str | int
-    device: str | int
+    device: str | int | None = None
     role: str | int
     tenant: str | int
     platform: str | int
@@ -544,7 +544,9 @@ class NetboxVirtualMachine(BaseModel):
         return result
 
     @field_validator('device')
-    def validate_device(cls, param: str) -> int:
+    def validate_device(cls, param: str | None) -> int | None:
+        if param is None:
+            return None
         result = cls.handler().get_device(param).id
         assert result, f"Device {param} not found"
         return result

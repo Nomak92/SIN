@@ -2,5 +2,6 @@
 /venv
 /logs/
 *.csv
+*.yaml
 .env
 /import.csv

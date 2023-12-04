@@ -277,7 +277,6 @@ class VcenterVirtualMachineHandler(BaseDeviceHandler):
                 break
         results = {
             "primary_ip4": primary_ip4,
-            "device": virtual_machine.runtime.host.name,
             "vcpus": virtual_machine.config.hardware.numCPU,
             "memory": int(virtual_machine.config.hardware.memoryMB),
             "disk": self.get_disk_size(virtual_machine),
